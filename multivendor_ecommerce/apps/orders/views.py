@@ -1,0 +1,1066 @@
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from . import models
+from . import serializers
+from apps.activity_log.utils.functions import log_request
+import logging
+logger = logging.getLogger("myapp")
+from rest_framework.permissions import IsAuthenticated,IsAdminUser
+from config.utils.pagination import CustomPageNumberPagination
+from django.db import transaction
+from apps.orders.services.shipping_address_service import ShippingAddressService
+from .utils.permissions import OrderManagementPermission
+from django.core.cache import cache
+from apps.products.tasks import delete_products_list_cache
+
+
+
+class ShippingAddressView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = serializers.ShippingAddressSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "code": status.HTTP_400_BAD_REQUEST,
+                    "status": "failed",
+                    "message": "Invalid data provided.",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            shipping_address = ShippingAddressService.create_shipping_address(
+                user=request.user,
+                validated_data=serializer.validated_data,
+            )
+
+            log_request(
+                request,
+                "Shipping address created",
+                "info",
+                "Shipping address created successfully",
+                response_status_code=status.HTTP_201_CREATED,
+            )
+
+            return Response(
+                {
+                    "code": status.HTTP_201_CREATED,
+                    "status": "success",
+                    "message": "Shipping address created successfully.",
+                    "data": {
+                        "id": shipping_address.id,
+                        "user": shipping_address.user.email,
+                        "name": shipping_address.name,
+                        "phone": shipping_address.phone,
+                        "address_line": shipping_address.address_line,
+                    },
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        except Exception as e:
+            logger.exception("Error creating shipping address")
+
+            log_request(
+                request,
+                "Error creating shipping address",
+                "error",
+                "An error occurred while creating shipping address",
+                response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+            return Response(
+                {
+                    "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "status": "failed",
+                    "message": "An error occurred while creating shipping address.",
+                    "errors": {"server_error": [str(e)]},
+                },status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    
+    # Get All Shipping Addresses
+    def get(self, request):
+        try:
+            shipping_addresses = models.ShippingAddress.objects.filter(user = request.user)
+            serializer = serializers.ShippingAddressSerializerForView(shipping_addresses, many=True)
+            log_request(request, "Fetched shipping addresses", "info",
+                        "Shipping addresses fetched successfully", response_status_code=status.HTTP_200_OK)
+            return Response(
+                {
+                    "code": status.HTTP_200_OK,
+                    "status": "success",
+                    "message": "Shipping addresses retrieved successfully.",
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error fetching shipping addresses", "error",
+                        "An error occurred while retrieving shipping addresses", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {
+                    "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "status": "failed",
+                    "message": "An error occurred while retrieving shipping addresses.",
+                    "errors": {"server_error": [str(e)]},
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+class ShippingAddressDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        try:
+            
+            shipping_address = models.ShippingAddress.objects.get(pk=pk, user=request.user)
+            serializer = serializers.ShippingAddressSerializerForView(shipping_address)
+            log_request(request, "Fetched shipping address", "info",
+                        "Shipping address fetched successfully", response_status_code=status.HTTP_200_OK)
+            return Response(
+                {
+                    "code": status.HTTP_200_OK,
+                    "status": "success",
+                    "message": "Shipping address retrieved successfully.",
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except models.ShippingAddress.DoesNotExist:
+            return Response(
+                {
+                    "code": status.HTTP_404_NOT_FOUND,
+                    "status": "failed",
+                    "message": "Shipping address not found.",
+                    "errors": {
+                        "shipping_address_id": f"Shipping address not found for id {pk}."
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        except Exception as e:
+            logger.exception("An error occurred while retrieving shipping address.")
+            log_request(request, "Error retrieving shipping address", "error",
+                        "An error occurred while retrieving shipping address", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {
+                    "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "status": "failed",
+                    "message": "An error occurred while retrieving shipping address.",
+                    "errors": {
+                        "server_error": [str(e)]
+                    }
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+    
+    def delete(self, request, pk):
+        try:
+            try:
+                shipping_address = models.ShippingAddress.objects.get(pk=pk, user=request.user)
+            except models.ShippingAddress.DoesNotExist:
+                return Response(
+                    {
+                        "code": status.HTTP_404_NOT_FOUND,
+                        "status": "failed",
+                        "message": "Shipping address not found.",
+                        "errors": {
+                            "shipping_address_id": "Shipping address not found."
+                        }
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            shipping_address.delete()
+            log_request(request, "Deleted shipping address", "info",
+                        "Shipping address deleted successfully", response_status_code=status.HTTP_204_NO_CONTENT)
+            return Response(
+                {
+                    "code": status.HTTP_204_NO_CONTENT,
+                    "status": "success",
+                    "message": "Shipping address deleted successfully.",
+                },
+                status=status.HTTP_204_NO_CONTENT,
+            )
+
+        except Exception as e:
+            logger.exception("Error deleting shipping address.")
+            log_request(request, "Error deleting shipping address", "error",
+                        f"An error occurred while deleting shipping address {pk}", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {
+                    "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "status": "failed",
+                    "message": "An error occurred while deleting shipping address.",
+                    "errors": {"server_error": [str(e)]},
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    
+
+# class OrderView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     @transaction.atomic
+#     def post(self, request):
+#         try:
+#             serializer = serializers.OrderSerializer(data=request.data, context={"request": request})
+
+#             if serializer.is_valid():
+#                 order = serializer.save()
+#                 log_request(request, "Order created", "info",
+#                         "Order created successfully", response_status_code=status.HTTP_201_CREATED)
+#                 return Response(
+#                     {
+#                         "code": status.HTTP_201_CREATED,
+#                         "status": "success",
+#                         "message": "Order created successfully.",
+#                         "data": {
+#                             "order_id": order.id,
+#                             "order_number": order.order_number,
+#                             "total_amount": order.total_amount,
+#                         },
+#                     },
+#                     status=status.HTTP_201_CREATED,
+#                 )
+
+#             return Response(
+#                 {
+#                     "code": status.HTTP_400_BAD_REQUEST,
+#                     "status": "failed",
+#                     "message": "order creation failed.",
+#                     "errors": serializer.errors,
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+
+#         except Exception as e:
+#             logger.exception(str(e))
+#             transaction.set_rollback(True)
+#             log_request(request, "Error creating order", "error",
+#                         "An error occurred while creating order", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+#             return Response(
+#                 {
+#                     "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+#                     "status": "failed",
+#                     "message": "Order creation failed.",
+#                     "errors": {"server_error": [str(e)]},
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#     )
+    
+#     def get(self, request):
+#         try:
+#             paginator = CustomPageNumberPagination()
+#             # Only logged-in user orders
+#             orders = models.Order.objects.select_related('user','coupon','parent','shipping_address').all().order_by("-id")
+
+#             # Paginate
+#             paginated_orders = paginator.paginate_queryset(orders, request)
+
+#             serializer = serializers.OrderSerializerView(
+#                 paginated_orders, many=True
+#             )
+
+#             log_request(request, "Fetched orders", "info",
+#                         "Orders fetched successfully", response_status_code=status.HTTP_200_OK)
+#             return paginator.get_paginated_response(
+#                 {
+#                     "code": status.HTTP_200_OK,
+#                     "status": "success",
+#                     "message": "Orders retrieved successfully.",
+#                     "data": serializer.data,
+#                 }
+#             )
+
+#         except Exception as e:
+#             logger.exception(str(e))
+#             log_request(request, "Error fetching orders", "error",
+#                         "An error occurred while retrieving orders", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+#             return Response(
+#                 {
+#                     "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+#                     "status": "failed",
+#                     "message": "An error occurred while retrieving orders.",
+#                     "errors": {"server_error": [str(e)]},
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+# -------------------------------------
+
+
+class OrderView(APIView):
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [IsAuthenticated(),OrderManagementPermission()]
+        return [IsAuthenticated()]
+
+    @transaction.atomic
+    def post(self, request):
+        try:
+            serializer = serializers.OrderSerializer(data=request.data, context={"request": request})
+            
+            if serializer.is_valid():
+                order = serializer.save()
+                log_request(request, "Order created", "info",
+                        "Order created successfully", response_status_code=status.HTTP_201_CREATED)
+                delete_products_list_cache()
+                return Response(
+                    {
+                        "code": status.HTTP_201_CREATED,
+                        "status": "success",
+                        "message": "Order created successfully.",
+                        "data": {
+                            "order_id": order.id,
+                            "order_number": order.order_number,
+                            "total_amount": order.total_amount,
+                        },
+                    },
+                    status=status.HTTP_201_CREATED,
+                )
+
+            return Response(
+                {
+                    "code": status.HTTP_400_BAD_REQUEST,
+                    "status": "failed",
+                    "message": "order creation failed.",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except Exception as e:
+            logger.exception(str(e))
+            transaction.set_rollback(True)
+            log_request(request, "Error creating order", "error",
+                        "An error occurred while creating order", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {
+                    "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "status": "failed",
+                    "message": "Order creation failed.",
+                    "errors": {"server_error": [str(e)]},
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )
+    
+    def get(self, request):
+        try:
+            paginator = CustomPageNumberPagination()
+            # Only logged-in user orders
+            orders = models.Order.objects.select_related('user','coupon','parent','shipping_address').all().order_by("-id")
+
+            # Paginate
+            paginated_orders = paginator.paginate_queryset(orders, request)
+
+            serializer = serializers.OrderSerializerView(
+                paginated_orders, many=True
+            )
+
+            log_request(request, "Fetched orders", "info",
+                        "Orders fetched successfully", response_status_code=status.HTTP_200_OK)
+            return paginator.get_paginated_response(
+                {
+                    "code": status.HTTP_200_OK,
+                    "status": "success",
+                    "message": "Orders retrieved successfully.",
+                    "data": serializer.data,
+                }
+            )
+
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error fetching orders", "error",
+                        "An error occurred while retrieving orders", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {
+                    "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "status": "failed",
+                    "message": "An error occurred while retrieving orders.",
+                    "errors": {"server_error": [str(e)]},
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+            
+
+            
+
+class OrderDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        try:
+            order = models.Order.objects.select_related('user','shipping_address','parent','coupon').get(pk=pk, user=request.user)
+            serializer = serializers.OrderDetailSerializerView(order)
+            log_request(request, "Fetched order", "info",
+                        "Order fetched successfully", response_status_code=status.HTTP_200_OK)
+            return Response(  {
+                "code": status.HTTP_200_OK,
+                "status": "success",
+                "message": "Order retrieved successfully.",
+                "data": serializer.data,
+            } , status=status.HTTP_200_OK)
+        except models.Order.DoesNotExist:
+            return Response(
+                {
+                    "code": status.HTTP_404_NOT_FOUND,
+                    "status": "failed",
+                    "message": "Order not found.",
+                    "errors":{
+                        "order_id": [f"Order not found with id {pk}"]
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error fetching order", "error",
+                        "An error occurred while retrieving order", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "status": "failed",
+                "message": "An error occurred while retrieving order.",
+                "errors": {"server_error": [str(e)]},
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                         
+            
+class OrderListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            orders = models.Order.objects.select_related('user','shipping_address','parent').filter(user=request.user).order_by("-id")
+            paginator = CustomPageNumberPagination()
+            result_page = paginator.paginate_queryset(orders, request)
+            serializer = serializers.OrderSerializerView(result_page, many=True)
+            log_request(request, "Fetched orders", "info",
+                        "Orders fetched successfully", response_status_code=status.HTTP_200_OK)
+            return paginator.get_paginated_response(
+                {
+                    "code": status.HTTP_200_OK,
+                    "status": "success",
+                    "message": "Orders retrieved successfully.",
+                    "data": serializer.data,
+                }
+            )
+
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error fetching orders", "error",
+                        "An error occurred while retrieving orders", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {
+                    "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "status": "failed",
+                    "message": "An error occurred while retrieving orders.",
+                    "errors": {"server_error": [str(e)]},
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+            
+
+class StoreOrderListView(APIView):
+    
+    def get(self, request, store_id):
+        try:
+            orders = models.Order.objects.filter(store_id=store_id)
+            serializer = serializers.OrderSerializerView(orders, many=True)
+            log_request(request, "Fetched orders by store id", "info",
+                        "Orders fetched successfully by store id", response_status_code=status.HTTP_200_OK)
+            return Response(
+                {
+                    "code": status.HTTP_200_OK,
+                    "status": "success",
+                    "message": "Orders retrieved successfully.",
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+        
+        except models.Order.DoesNotExist:
+            return Response(
+                {
+                    "code": status.HTTP_404_NOT_FOUND,
+                    "status": "failed",
+                    "message": "Order not found by store id.",
+                    "errors":{
+                        "store_id": [f"Order not found with store id {store_id}"]
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+                    
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error fetching orders by store id", "error",
+                        "An error occurred while retrieving orders by store id", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "status": "failed",
+                "message": "An error occurred while retrieving orders.",
+                "errors": {"server_error": [str(e)]},
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+            
+            
+            
+class ShippingConfigurationView(APIView):
+   
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticated(),IsAdminUser()]
+        else:
+            return [IsAuthenticated()]
+    def post(self, request):
+        try:
+            serializer = serializers.ShippingConfigurationPostSerializer(data=request.data)
+            if serializer.is_valid():
+                serializer.save()
+                log_request(request, "Created shipping configuration", "info",
+                            "Shipping configuration created successfully", response_status_code=status.HTTP_201_CREATED)
+                return Response(
+                    {
+                        "code": status.HTTP_201_CREATED,
+                        "status": "success",
+                        "message": "Shipping configuration created successfully.",
+                        "data": serializer.data,
+                    },
+                    status=status.HTTP_201_CREATED,
+                )
+
+            else:
+                return Response(
+                    {
+                        "code": status.HTTP_400_BAD_REQUEST,
+                        "status": "failed",
+                        "message": "Invalid data.",
+                        "errors": serializer.errors,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+                
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error creating shipping configuration", "error",
+                        "An error occurred while creating shipping configuration", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "status": "failed",
+                "message": "An error occurred while creating shipping configuration.",
+                "errors": {"server_error": [str(e)]},
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    def get(self, request):
+        try:
+            config = models.ShippingConfiguration.objects.all()
+            serializer = serializers.ShippingConfigurationSerializer(config, many=True)
+            log_request(request, "Fetched shipping configuration", "info",
+                        "Shipping configuration fetched successfully", response_status_code=status.HTTP_200_OK)
+            return Response(
+                {
+                    "code": status.HTTP_200_OK,
+                    "status": "success",
+                    "message": "Shipping configuration retrieved successfully.",
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+        
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error fetching shipping configuration", "error",
+                        "An error occurred while retrieving shipping configuration", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "status": "failed",
+                "message": "An error occurred while retrieving shipping configuration.",
+                "errors": {"server_error": [str(e)]},
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+ 
+class ShippingConfigurationDetailView(APIView):
+    def patch(self, request, pk):
+        try:
+            config = models.ShippingConfiguration.objects.get(pk=pk)
+            serializer = serializers.ShippingConfigurationSerializer(data=request.data, instance=config, partial=True)
+            if serializer.is_valid():
+                obj=serializer.save()
+                
+                log_request(request, "Updated shipping configuration", "info",
+                            "Shipping configuration updated successfully", response_status_code=status.HTTP_200_OK)
+                return Response(
+                    {
+                        "code": status.HTTP_200_OK,
+                        "status": "success",
+                        "message": "Shipping configuration updated successfully.",
+                        "data":{
+                            "shipping_configuration_id": obj.id,
+                            "shipping_fee": obj.shipping_fee,
+                            "location_name": obj.location_name
+                            },
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+            else:
+                return Response(
+                    {
+                        "code": status.HTTP_400_BAD_REQUEST,
+                        "status": "failed",
+                        "message": "Invalid data.",
+                        "errors": serializer.errors,
+                    }
+                )     
+        except models.ShippingConfiguration.DoesNotExist:
+            return Response(
+                {
+                    "code": status.HTTP_404_NOT_FOUND,
+                    "status": "failed",
+                    "message": "Shipping configuration not found.",
+                    "errors": {
+                        "shipping_configuration_id": [f"Shipping configuration not found with id {pk}"]
+                    },
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error updating shipping configuration", "error",
+                        "An error occurred while updating shipping configuration", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "status": "failed",
+                "message": "An error occurred while updating shipping configuration.",
+                "errors": {"server_error": [str(e)]},
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class OrderConfirmationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            order = models.Order.objects.get(pk=pk, user=request.user)
+            serializer = serializers.OrderConfirmationSerializer(data=request.data, instance=order,partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                
+                log_request(request, "Order confirmed", "info",
+                            "Order confirmed successfully", response_status_code=status.HTTP_200_OK)
+                return Response(
+                    {
+                        "code": status.HTTP_200_OK,
+                        "status": "success",
+                        "message": "Order confirmed successfully.",
+                        "data": {
+                            "order_id": order.id,
+                            "order_number": order.order_number,
+                        },
+                    },
+                    status=status.HTTP_200_OK,
+                )
+            else:
+                return Response(
+                    {
+                        "code": status.HTTP_400_BAD_REQUEST,
+                        "status": "failed",
+                        "message": "Invalid data",
+                        "errors": serializer.errors
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except models.Order.DoesNotExist:
+            return Response(
+                {
+                    "code": status.HTTP_404_NOT_FOUND,
+                    "status": "failed",
+                    "message": "Order not found.",
+                    "errors":{
+                        "order_id": [f"Order not found with id {pk}"]
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+                    
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error confirming order", "error",
+                        "An error occurred while confirming order", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "status": "failed",
+                "message": "An error occurred while confirming order.",
+                "errors": {"server_error": [str(e)]},
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+
+
+class AddExistingAddressToOrderView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            order = models.Order.objects.get(pk=pk, user=request.user)
+            serializer = serializers.AddExistingAddressSerializer(data=request.data, context={"request": request}, instance=order,partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                address = serializer.validated_data.get('shipping_address') 
+                log_request(request, "Existing address added to order", "info",
+                            "Existing address added to order successfully", response_status_code=status.HTTP_200_OK)
+                return Response(
+                    {
+                        "code": status.HTTP_200_OK,
+                        "status": "success",
+                        "message": "Existing address added to order successfully.",
+                        "data": {
+                            "order_id": order.id,
+                            "order_number": order.order_number,
+                        },
+                    },
+                    status=status.HTTP_200_OK,
+                )
+            else:
+                return Response(
+                    {
+                        "code": status.HTTP_400_BAD_REQUEST,
+                        "status": "failed",
+                        "message": "Invalid data",
+                        "errors": serializer.errors
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except models.Order.DoesNotExist:
+            return Response(
+                {
+                    "code": status.HTTP_404_NOT_FOUND,
+                    "status": "failed",
+                    "message": "Order not found.",
+                    "errors":{
+                        "order_id": [f"Order not found with id {pk}"]
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+                    
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error adding existing address to order", "error",
+                        "An error occurred while adding existing address to order", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "status": "failed",
+                "message": "An error occurred while adding existing address to order.",
+                "errors": {"server_error": [str(e)]},
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AllOwnCancelOrderListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            canceled_orders = models.Order.objects.filter(status='cancelled', user=request.user).order_by("-id")
+            paginator = CustomPageNumberPagination()
+            result_page = paginator.paginate_queryset(canceled_orders, request)
+            serializer = serializers.OrderSerializerView(result_page, many=True)
+            log_request(request, "Fetched cancelled orders", "info",
+                        "cancelled orders fetched successfully", response_status_code=status.HTTP_200_OK)
+            return paginator.get_paginated_response(
+                {
+                    "code": status.HTTP_200_OK,
+                    "status": "success",
+                    "message": "Cancelled orders retrieved successfully.",
+                    "data": serializer.data,
+                }
+            )
+
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error fetching cancelled orders", "error",
+                        "An error occurred while retrieving cancelled orders", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {
+                    "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "status": "failed",
+                    "message": "An error occurred while retrieving cancelled orders.",
+                    "errors": {"server_error": [str(e)]},
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+            
+
+class AllOwnDeliveredOrderListView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            delivered_orders = models.Order.objects.filter(status='delivered', user=request.user).order_by("-id")
+            paginator = CustomPageNumberPagination()
+            result_page = paginator.paginate_queryset(delivered_orders, request)
+            serializer = serializers.OrderSerializerView(result_page, many=True)
+            log_request(request, "Fetched delivered orders", "info",
+                        "Delivered orders fetched successfully", response_status_code=status.HTTP_200_OK)
+            return paginator.get_paginated_response(
+                {
+                    "code": status.HTTP_200_OK,
+                    "status": "success",
+                    "message": "Delivered orders retrieved successfully.",
+                    "data": serializer.data,
+                }
+            )
+
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error fetching delivered orders", "error",
+                        "An error occurred while retrieving delivered orders", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {
+                    "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "status": "failed",
+                    "message": "An error occurred while retrieving delivered orders.",
+                    "errors": {"server_error": [str(e)]},
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+
+class OrderCancelView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        try:
+            order = models.Order.objects.get(pk=pk, user=request.user)
+            if order.status in ['cancelled', 'delivered', 'refunded']:
+                return Response(
+                    {
+                        "code": status.HTTP_400_BAD_REQUEST,
+                        "status": "failed",
+                        "message": f"Order cannot be cancelled as it is already {order.status}.",
+                        "data": {
+                            "order_id": order.id,
+                            "order_number": order.order_number,
+                        }
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            order.status = 'cancelled'
+            order.save()
+            log_request(request, "Order cancelled", "info",
+                        "Order cancelled successfully", response_status_code=status.HTTP_200_OK)
+            return Response(
+                {
+                    "code": status.HTTP_200_OK,
+                    "status": "success",
+                    "message": "Order cancelled successfully.",
+                    "data": {
+                        "order_id": order.id,
+                        "order_number": order.order_number,
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+        except models.Order.DoesNotExist:
+            return Response(
+                {
+                    "code": status.HTTP_404_NOT_FOUND,
+                    "status": "failed",
+                    "message": "Order not found.",
+                    "errors":{
+                        "order_id": [f"Order not found with id {pk}"]
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+                    
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error cancelling order", "error",
+                        "An error occurred while cancelling order", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "status": "failed",
+                "message": "An error occurred while cancelling order.",
+                "errors": {"server_error": [str(e)]},
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+            
+class AllOwnConfirmedOrderListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            confirmed_orders = models.Order.objects.filter(status='confirmed', user=request.user).order_by("-id")
+            paginator = CustomPageNumberPagination()
+            result_page = paginator.paginate_queryset(confirmed_orders, request)
+            serializer = serializers.OrderSerializerView(result_page, many=True)
+            log_request(request, "Fetched confirmed orders", "info",
+                        "Confirmed orders fetched successfully", response_status_code=status.HTTP_200_OK)
+            return paginator.get_paginated_response(
+                {
+                    "code": status.HTTP_200_OK,
+                    "status": "success",
+                    "message": "Confirmed orders retrieved successfully.",
+                    "data": serializer.data,
+                }
+            )
+
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error fetching confirmed orders", "error",
+                        "An error occurred while retrieving confirmed orders", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {
+                    "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "status": "failed",
+                    "message": "An error occurred while retrieving confirmed orders.",
+                    "errors": {"server_error": [str(e)]},
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+         
+
+class SingleOrderDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        try:
+            order = models.Order.objects.select_related('user','shipping_address','parent','coupon').get(pk=pk)
+            serializer = serializers.OrderDetailSerializerView(order)
+            log_request(request, "Fetched order", "info",
+                        "Order fetched successfully", response_status_code=status.HTTP_200_OK)
+            return Response(  {
+                "code": status.HTTP_200_OK,
+                "status": "success",
+                "message": "Order retrieved successfully.",
+                "data": serializer.data,
+            } , status=status.HTTP_200_OK)
+        except models.Order.DoesNotExist:
+            return Response(
+                {
+                    "code": status.HTTP_404_NOT_FOUND,
+                    "status": "failed",
+                    "message": "Order not found.",
+                    "errors":{
+                        "order_id": [f"Order not found with id {pk}"]
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error fetching order", "error",
+                        "An error occurred while retrieving order", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "status": "failed",
+                "message": "An error occurred while retrieving order.",
+                "errors": {"server_error": [str(e)]},
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    #   just update order status
+    def patch(self, request, pk):
+        try:
+            order = models.Order.objects.get(pk=pk)
+            serializer = serializers.OrderStatusUpdateSerializer(data=request.data, instance=order, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                log_request(request, "Order status updated", "info",
+                            "Order status updated successfully", response_status_code=status.HTTP_200_OK)
+                return Response(
+                    {
+                        "code": status.HTTP_200_OK,
+                        "status": "success",
+                        "message": "Order status updated successfully.",
+                        "data": {
+                            "order_id": order.id,
+                            "order_number": order.order_number,
+                            "status": order.status,
+                        },
+                    },
+                    status=status.HTTP_200_OK,
+                )
+            else:
+                return Response(
+                    {
+                        "code": status.HTTP_400_BAD_REQUEST,
+                        "status": "failed",
+                        "message": "Invalid data",
+                        "errors": serializer.errors
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except models.Order.DoesNotExist:
+            return Response(
+                {
+                    "code": status.HTTP_404_NOT_FOUND,
+                    "status": "failed",
+                    "message": "Order not found.",
+                    "errors":{
+                        "order_id": [f"Order not found with id {pk}"]
+                    }
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+                    
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error updating order status", "error",
+                        "An error occurred while updating order status", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "status": "failed",
+                "message": "An error occurred while updating order status.",
+                "errors": {"server_error": [str(e)]},
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+class AdminAllShippingAddressView(APIView):
+    permission_classes = [IsAuthenticated,OrderManagementPermission]
+
+    # Get All Shipping Addresses
+    def get(self, request):
+        try:
+            shipping_addresses = models.ShippingAddress.objects.all().order_by("-id")
+            serializer = serializers.ShippingAddressSerializerForView(shipping_addresses, many=True)
+            paginator = CustomPageNumberPagination()
+            result_page = paginator.paginate_queryset(shipping_addresses, request)
+            log_request(request, "Fetched shipping addresses", "info",
+                        "Shipping addresses fetched successfully", response_status_code=status.HTTP_200_OK)
+            return paginator.get_paginated_response(
+            
+                {
+                    "code": status.HTTP_200_OK,
+                    "status": "success",
+                    "message": "Shipping addresses retrieved successfully.",
+                    "data": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            logger.exception(str(e))
+            log_request(request, "Error fetching shipping addresses", "error",
+                        "An error occurred while retrieving shipping addresses", response_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {
+                    "code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    "status": "failed",
+                    "message": "An error occurred while retrieving shipping addresses.",
+                    "errors": {"server_error": [str(e)]},
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

@@ -1,0 +1,21 @@
+/* Add blue scrollbar styling for sidebar */
+.sidebar-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: #3b82f6;
+  border-radius: 4px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #fffdff;
+}
+
+.sidebar-scrollbar {
+  scrollbar-color: #e2e9f1 transparent;
+}

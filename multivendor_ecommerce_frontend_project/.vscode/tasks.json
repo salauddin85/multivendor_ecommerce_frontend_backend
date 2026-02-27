@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "install-axios",
+			"type": "shell",
+			"command": "npm install axios",
+			"group": "build"
+		}
+	]
+}

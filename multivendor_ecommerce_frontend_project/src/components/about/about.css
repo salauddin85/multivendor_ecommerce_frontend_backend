@@ -1,0 +1,202 @@
+/* EezzyMart About Unique Namespace - Using eezzymartAbout prefix for keyframes */
+@keyframes eezzymartAboutFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes eezzymartAboutSlideRight {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes eezzymartAboutSlideLeft {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes eezzymartAboutExpandWidth {
+  from {
+    width: 0;
+    opacity: 0;
+  }
+  to {
+    width: 6rem;
+    opacity: 1;
+  }
+}
+
+@keyframes eezzymartAboutFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes eezzymartAboutPulse {
+  0%, 100% {
+    opacity: 0.2;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(1.05);
+  }
+}
+
+/* Base Animation Classes - Using eezzymart-about- prefix for classes */
+.eezzymart-about-fade-up {
+  animation: eezzymartAboutFadeUp 0.8s ease-out forwards;
+  opacity: 0;
+}
+
+.eezzymart-about-slide-right {
+  animation: eezzymartAboutSlideRight 0.8s ease-out forwards;
+  opacity: 0;
+}
+
+.eezzymart-about-slide-left {
+  animation: eezzymartAboutSlideLeft 0.8s ease-out forwards;
+  opacity: 0;
+}
+
+.eezzymart-about-expand {
+  animation: eezzymartAboutExpandWidth 1s ease-out forwards;
+}
+
+.eezzymart-about-float {
+  animation: eezzymartAboutFloat 3s ease-in-out infinite;
+}
+
+.eezzymart-about-pulse {
+  animation: eezzymartAboutPulse 3s ease-in-out infinite;
+}
+
+/* Delay Classes */
+.eezzymart-about-delay-200 {
+  animation-delay: 200ms;
+}
+
+.eezzymart-about-delay-300 {
+  animation-delay: 300ms;
+}
+
+.eezzymart-about-delay-400 {
+  animation-delay: 400ms;
+}
+
+.eezzymart-about-delay-600 {
+  animation-delay: 600ms;
+}
+
+.eezzymart-about-delay-2000 {
+  animation-delay: 2000ms;
+}
+
+/* Interactive Element Styles */
+.eezzymart-about-stat-card {
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.eezzymart-about-stat-card:hover {
+  transform: scale(1.05);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.eezzymart-about-section:hover .eezzymart-about-reveal-line {
+  height: 100%;
+  transition: height 0.7s ease;
+}
+
+.eezzymart-about-reveal-line {
+  transition: height 0.7s ease;
+}
+
+.eezzymart-about-hover-card {
+  transition: all 0.5s ease;
+}
+
+.eezzymart-about-hover-card:hover {
+  transform: scale(1.02);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.eezzymart-about-hover-card:hover .eezzymart-about-glow {
+  opacity: 0.3;
+  transition: opacity 0.5s ease;
+}
+
+.eezzymart-about-glow {
+  transition: opacity 0.5s ease;
+}
+
+.eezzymart-about-feature-card {
+  transition: all 0.5s ease;
+}
+
+.eezzymart-about-feature-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.eezzymart-about-icon {
+  transition: transform 0.5s ease;
+}
+
+.group:hover .eezzymart-about-icon {
+  transform: rotate(12deg);
+}
+
+.eezzymart-about-card-underline {
+  transition: transform 0.5s ease;
+}
+
+.group:hover .eezzymart-about-card-underline {
+  transform: scaleX(1);
+}
+
+.eezzymart-about-cta-button {
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.eezzymart-about-cta-button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.eezzymart-about-cta-glow {
+  transition: opacity 0.3s ease;
+}
+
+.group:hover .eezzymart-about-cta-glow {
+  opacity: 0.75;
+}
+
+.eezzymart-about-title-underline {
+  background: linear-gradient(to right, #ea580c, #d97706);
+}
+
+.eezzymart-about-accent-line {
+  background: linear-gradient(to bottom, #ea580c, #d97706);
+}

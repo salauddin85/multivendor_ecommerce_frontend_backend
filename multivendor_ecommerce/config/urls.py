@@ -1,0 +1,50 @@
+"""
+URL configuration for config project.
+
+The `urlpatterns` list routes URLs to views. For more information please see:
+    https://docs.djangoproject.com/en/5.1/topics/http/urls/
+Examples:
+Function views
+    1. Add an import:  from my_app import views
+    2. Add a URL to urlpatterns:  path('', views.home, name='home')
+Class-based views
+    1. Add an import:  from other_app.views import Home
+    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
+Including another URLconf
+    1. Import the include() function: from django.urls import include, path
+    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+"""
+from django.contrib import admin
+from django.urls import path, include
+from django.conf.urls.static import static
+from django.conf import settings
+
+urlpatterns = [
+    path('api/admin/', admin.site.urls),
+    path('api/silk/', include('silk.urls', namespace='silk')),
+    path('api/authentication/', include('apps.authentication.urls')),
+    path('api/authorization/', include('apps.authorization.urls')),
+    path('api/catalog/', include('apps.catalog.urls')),
+    path('api/stores/',include('apps.stores.urls')),
+    path('api/products/',include('apps.products.urls')),
+    path('api/cart/',include('apps.cart.urls')),
+    path('api/orders/',include('apps.orders.urls')),
+    path('api/payments/',include('apps.payments.urls')),
+    path('api/blogs/',include('apps.blogs.urls')),
+    path('api/notifications/',include('apps.notifications.urls')),
+    path('api/wishlist/',include('apps.wishlist.urls')),
+    path('api/coupons/',include('apps.coupons.urls')),
+    path('api/activity_log/',include('apps.activity_log.urls')),
+    path('api/reviews/',include('apps.review.urls')),
+    path('api/vendors_dashboard/',include('apps.vendors_dashboard.urls')),
+    path('api/admin_dashboard/',include('apps.admin_dashboard.urls')),
+    path('api/company_dashboard/',include('apps.company_dashboard.urls')),
+    path('api/contacts/',include('apps.contacts.urls')),
+    
+
+
+]
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL,
+                          document_root=settings.MEDIA_ROOT)
+
